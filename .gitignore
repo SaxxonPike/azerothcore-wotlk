@@ -96,3 +96,9 @@ local.properties
 #  !modules/yourmodule
 #
 # ==================
+
+bin/*.log
+bin/Data
+bin/authserver
+bin/worldserver
+etc/
