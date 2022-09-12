@@ -5,3 +5,7 @@
 	path = modules/mod-autobalance
 	url = git@github.com:SaxxonPike/mod-autobalance.git
 	branch = kelfor
+[submodule "modules/mod-transmog"]
+	path = modules/mod-transmog
+	url = git@github.com:SaxxonPike/mod-transmog.git
+	branch = kelfor
