@@ -3,4 +3,5 @@
 	url = https://github.com/ingydotnet/git-subrepo.git
 [submodule "modules/mod-autobalance"]
 	path = modules/mod-autobalance
-	url = git@github.com:azerothcore/mod-autobalance.git
+	url = git@github.com:SaxxonPike/mod-autobalance.git
+	branch = kelfor
