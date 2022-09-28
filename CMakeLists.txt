@@ -100,6 +100,7 @@ CU_RUN_HOOK("AFTER_LOAD_CMAKE_MODULES")
 
 find_package(PCHSupport)
 find_package(MySQL REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 if(UNIX AND WITH_PERFTOOLS)
     find_package(Gperftools)
