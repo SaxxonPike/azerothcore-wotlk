@@ -7,6 +7,9 @@
 # Which is copied from:
 #   https://github.com/vector-of-bool/CMakeCM/blob/master/modules/FindFilesystem.cmake
 
+# Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
+# file Copyright.txt or https://cmake.org/licensing for details.
+
 #[=======================================================================[.rst:
 
 FindFilesystem
@@ -40,6 +43,7 @@ provided, first looks for ``Final``, and falls back to ``Experimental`` in case
 of failure. If ``Final`` is found, :imp-target:`std::filesystem` and all
 :ref:`variables <fs.variables>` will refer to the ``Final`` version.
 
+
 Imported Targets
 ****************
 
@@ -57,6 +61,7 @@ Imported Targets
         :ref:`compile language standard feature <req-lang-standards>`. Linking
         to this target will automatically enable C++17 if no later standard
         version is already required on the linking target.
+
 
 .. _fs.variables:
 
@@ -84,6 +89,7 @@ Variables
     depending on whether :find-component:`fs.Final` or
     :find-component:`fs.Experimental` was found.
 
+
 Examples
 ********
 
@@ -96,31 +102,40 @@ Using `find_package(Filesystem)` with no component arguments:
     add_executable(my-program main.cpp)
     target_link_libraries(my-program PRIVATE std::filesystem)
 
+
 #]=======================================================================]
+
 
 if(TARGET std::filesystem)
     # This module has already been processed. Don't do it again.
     return()
 endif()
 
-cmake_policy(PUSH)
-if(POLICY CMP0067)
-    # pass CMAKE_CXX_STANDARD to check_cxx_source_compiles()
-    # has to appear before including CheckCXXSourceCompiles module
-    cmake_policy(SET CMP0067 NEW)
-endif()
+cmake_minimum_required(VERSION 3.10)
 
 include(CMakePushCheckState)
 include(CheckIncludeFileCXX)
-include(CheckCXXSourceCompiles)
+
+# If we're not cross-compiling, try to run test executables.
+# Otherwise, assume that compile + link is a sufficient check.
+if(CMAKE_CROSSCOMPILING)
+    include(CheckCXXSourceCompiles)
+    macro(_cmcm_check_cxx_source code var)
+        check_cxx_source_compiles("${code}" ${var})
+    endmacro()
+else()
+    include(CheckCXXSourceRuns)
+    macro(_cmcm_check_cxx_source code var)
+        check_cxx_source_runs("${code}" ${var})
+    endmacro()
+endif()
 
 cmake_push_check_state()
 
 set(CMAKE_REQUIRED_QUIET ${Filesystem_FIND_QUIETLY})
 
 # All of our tests required C++17 or later
-# But AC already sets this in ConfigureBaseTargets.cmake
-# set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
 
 # Normalize and check the component list we were given
 set(want_components ${Filesystem_FIND_COMPONENTS})
@@ -168,10 +183,12 @@ if(_CXX_FILESYSTEM_HAVE_HEADER)
     set(_have_fs TRUE)
     set(_fs_header filesystem)
     set(_fs_namespace std::filesystem)
+    set(_is_experimental FALSE)
 elseif(_CXX_FILESYSTEM_HAVE_EXPERIMENTAL_HEADER)
     set(_have_fs TRUE)
     set(_fs_header experimental/filesystem)
     set(_fs_namespace std::experimental::filesystem)
+    set(_is_experimental TRUE)
 else()
     set(_have_fs FALSE)
 endif()
@@ -179,22 +196,25 @@ endif()
 set(CXX_FILESYSTEM_HAVE_FS ${_have_fs} CACHE BOOL "TRUE if we have the C++ filesystem headers")
 set(CXX_FILESYSTEM_HEADER ${_fs_header} CACHE STRING "The header that should be included to obtain the filesystem APIs")
 set(CXX_FILESYSTEM_NAMESPACE ${_fs_namespace} CACHE STRING "The C++ namespace that contains the filesystem APIs")
+set(CXX_FILESYSTEM_IS_EXPERIMENTAL ${_is_experimental} CACHE BOOL "TRUE if the C++ filesystem library is the experimental version")
 
 set(_found FALSE)
 
 if(CXX_FILESYSTEM_HAVE_FS)
     # We have some filesystem library available. Do link checks
     string(CONFIGURE [[
+        #include <cstdlib>
         #include <@CXX_FILESYSTEM_HEADER@>
 
         int main() {
             auto cwd = @CXX_FILESYSTEM_NAMESPACE@::current_path();
-            return static_cast<int>(cwd.string().size());
+            printf("%s", cwd.c_str());
+            return EXIT_SUCCESS;
         }
     ]] code @ONLY)
 
-    # Try to compile a simple filesystem program without any linker flags
-    check_cxx_source_compiles("${code}" CXX_FILESYSTEM_NO_LINK_NEEDED)
+    # Check a simple filesystem program without any linker flags
+    _cmcm_check_cxx_source("${code}" CXX_FILESYSTEM_NO_LINK_NEEDED)
 
     set(can_link ${CXX_FILESYSTEM_NO_LINK_NEEDED})
 
@@ -202,42 +222,35 @@ if(CXX_FILESYSTEM_HAVE_FS)
         set(prev_libraries ${CMAKE_REQUIRED_LIBRARIES})
         # Add the libstdc++ flag
         set(CMAKE_REQUIRED_LIBRARIES ${prev_libraries} -lstdc++fs)
-        check_cxx_source_compiles("${code}" CXX_FILESYSTEM_STDCPPFS_NEEDED)
+        _cmcm_check_cxx_source("${code}" CXX_FILESYSTEM_STDCPPFS_NEEDED)
         set(can_link ${CXX_FILESYSTEM_STDCPPFS_NEEDED})
         if(NOT CXX_FILESYSTEM_STDCPPFS_NEEDED)
             # Try the libc++ flag
             set(CMAKE_REQUIRED_LIBRARIES ${prev_libraries} -lc++fs)
-            check_cxx_source_compiles("${code}" CXX_FILESYSTEM_CPPFS_NEEDED)
+            _cmcm_check_cxx_source("${code}" CXX_FILESYSTEM_CPPFS_NEEDED)
             set(can_link ${CXX_FILESYSTEM_CPPFS_NEEDED})
         endif()
     endif()
 
     if(can_link)
         add_library(std::filesystem INTERFACE IMPORTED)
-        target_compile_features(std::filesystem INTERFACE cxx_std_17)
+        set_property(TARGET std::filesystem APPEND PROPERTY INTERFACE_COMPILE_FEATURES cxx_std_17)
         set(_found TRUE)
+
         if(CXX_FILESYSTEM_NO_LINK_NEEDED)
-            # on certain linux distros we have a version of libstdc++ which has the final code for c++17 fs in the
-            # libstdc++.so.*. BUT when compiling with g++ < 9, we MUST still link with libstdc++fs.a
-            # libc++ should not suffer from this issue, so, in theory we should be fine with only checking for
-            # GCC's libstdc++
-            if((CMAKE_CXX_COMPILER_ID MATCHES "GNU") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "9.0.0"))
-                target_link_libraries(std::filesystem INTERFACE -lstdc++fs)
-            endif()
+            # Nothing to add...
         elseif(CXX_FILESYSTEM_STDCPPFS_NEEDED)
-            target_link_libraries(std::filesystem INTERFACE -lstdc++fs)
+            set_property(TARGET std::filesystem APPEND PROPERTY INTERFACE_LINK_LIBRARIES -lstdc++fs)
         elseif(CXX_FILESYSTEM_CPPFS_NEEDED)
-            target_link_libraries(std::filesystem INTERFACE -lc++fs)
+            set_property(TARGET std::filesystem APPEND PROPERTY INTERFACE_LINK_LIBRARIES -lc++fs)
         endif()
     endif()
 endif()
 
 cmake_pop_check_state()
 
-set(Filesystem_FOUND ${_found} CACHE BOOL "TRUE if we can compile and link a program using std::filesystem" FORCE)
+set(Filesystem_FOUND ${_found} CACHE BOOL "TRUE if we can run a program using std::filesystem" FORCE)
 
 if(Filesystem_FIND_REQUIRED AND NOT Filesystem_FOUND)
-    message(FATAL_ERROR "Cannot Compile simple program using std::filesystem")
+    message(FATAL_ERROR "Cannot run simple program using std::filesystem")
 endif()
-
-cmake_policy(POP)
