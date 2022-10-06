@@ -9,3 +9,7 @@
 	path = modules/mod-transmog
 	url = git@github.com:SaxxonPike/mod-transmog.git
 	branch = kelfor
+[submodule "modules/mod-eluna"]
+	path = modules/mod-eluna
+	url = git@github.com:SaxxonPike/mod-eluna.git
+	branch = kelfor
